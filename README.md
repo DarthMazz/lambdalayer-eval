@@ -25,7 +25,22 @@ LambdaLayer に配置した Native モジュールを Lambda の Python から�
 | Phase 0 | 環境準備（Finch ビルド環境、IAM ロール、共通スクリプト、実行環境プローブ） | ✅ 完了 |
 | Phase 1 | 依存なしの自作 `.so` を `ctypes` で呼ぶ（最小証明） | ✅ 完了 |
 | Phase 2 | 依存を持つ `.so` の解決確認 + `/opt/bin` 実行バイナリの補助確認 | ✅ 完了 |
-| Phase 3 | Tesseract 一式を Layer 化し、`ctypes` と `pytesseract` の両方式で OCR を実行 | 未着手 |
+| Phase 3 | Tesseract 一式を Layer 化し、`ctypes` と `pytesseract` の両方式で OCR を実行 | ✅ 完了 |
+
+## 検証結果（結論）
+
+**Lambda Layer に配置したネイティブモジュールは、Lambda の Python から呼び出せる。** Tesseract による OCR が実 AWS 環境で動作することを確認した。
+
+| 問い | 回答 |
+| --- | --- |
+| Layer の `.so` を `ctypes` でロードして呼べるか | **できる** |
+| `LD_LIBRARY_PATH` の追加設定は必要か | **不要**（`/opt/lib` が既定で含まれる） |
+| 依存を持つ `.so` の解決は成立するか | **する**（非 glibc 依存をすべて同梱すること） |
+| `/opt/bin` の実行ファイルは起動できるか | **できる** |
+| Tesseract 一式は 250 MB に収まるか | **収まる**（38.73 MB、余裕 211 MB） |
+| Lambda 上で OCR 結果が得られるか | **得られる**（両方式とも成功） |
+
+**本番採用の推奨は方式①（`ctypes`）。** OCR 1 回あたり 180.9 ms 対 613.2 ms（3.39 倍）、Layer サイズも約 15 MB 対 38.7 MB と有利。詳細は [検証結果レポート](docs/results.md) を参照。
 
 ## 使い方
 

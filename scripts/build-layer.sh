@@ -29,6 +29,19 @@ log "Layer をビルドします: phase${PHASE}"
 rm -rf "$STAGING"
 mkdir -p "$STAGING" "$BUILD_OUT_DIR"
 
+# フェーズ固有の Containerfile があれば、それをビルド用イメージとして使う。
+# ビルド依存の導入をイメージ層にキャッシュし、反復ビルドを速くするため。
+if [ -f "${LAYER_SRC}/Containerfile" ]; then
+  BUILD_IMAGE="${PREFIX}-phase${PHASE}-builder"
+  export BUILD_IMAGE
+  log "ビルド用イメージを作成します: ${BUILD_IMAGE}"
+  "$CONTAINER_CMD" build \
+    --platform "$BUILD_PLATFORM" \
+    -t "$BUILD_IMAGE" \
+    -f "${LAYER_SRC}/Containerfile" \
+    "$LAYER_SRC"
+fi
+
 # Lambda 実行環境と同一のコンテナ内でビルドする（ELF/aarch64 を得るため）
 run_in_builder "$LAYER_SRC" "set -eu; sh ./build.sh"
 
