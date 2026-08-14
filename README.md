@@ -24,7 +24,7 @@ LambdaLayer に配置した Native モジュールを Lambda の Python から�
 | --- | --- | --- |
 | Phase 0 | 環境準備（Finch ビルド環境、IAM ロール、共通スクリプト、実行環境プローブ） | ✅ 完了 |
 | Phase 1 | 依存なしの自作 `.so` を `ctypes` で呼ぶ（最小証明） | ✅ 完了 |
-| Phase 2 | 依存を持つ `.so` の解決確認 + `/opt/bin` 実行バイナリの補助確認 | 未着手 |
+| Phase 2 | 依存を持つ `.so` の解決確認 + `/opt/bin` 実行バイナリの補助確認 | ✅ 完了 |
 | Phase 3 | Tesseract 一式を Layer 化し、`ctypes` と `pytesseract` の両方式で OCR を実行 | 未着手 |
 
 ## 使い方

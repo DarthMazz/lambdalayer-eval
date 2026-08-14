@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Phase 0: 環境準備 | ✅ 完了 | 2026-08-14 |
 | Phase 1: 依存なし自作 `.so` | ✅ 完了 | 2026-08-14 |
-| Phase 2: 依存あり `.so` / 実行バイナリ | 未着手 | — |
+| Phase 2: 依存あり `.so` / 実行バイナリ | ✅ 完了 | 2026-08-14 |
 | Phase 3: Tesseract | 未着手 | — |
 
 ---
@@ -235,6 +235,116 @@ libc.so.6 => /lib64/libc.so.6
 | 1-3（絶対パスでのロード）と 1-5（関数呼び出し）が成功する | ✅ |
 
 **Phase 1 完了。本検証の最低到達点をクリアした。Phase 2 へ進行可能。**
+
+---
+
+## Phase 2: 依存関係を持つライブラリと実行バイナリ
+
+**Phase 3 で最も詰まりやすい「依存解決」を、Tesseract と同じ構造を自作ライブラリで再現して先に検証したフェーズ。**
+
+### 検証対象の構造
+
+Tesseract の実構造を意図的に模している。
+
+| Phase 2 の構成要素 | 対応する Phase 3（Tesseract）の要素 |
+| --- | --- |
+| `/opt/lib/libevalmain.so`（`libevaldep.so` に依存） | `libtesseract.so`（leptonica 等に依存） |
+| `/opt/lib/libevaldep.so`（依存される側） | `libleptonica.so` |
+| `/opt/bin/evaltool`（`libevaldep.so` にリンクする実行ファイル） | `tesseract` CLI（`libtesseract.so` にリンク） |
+| `/opt/broken/libbroken.so`（実体のない依存を持つ） | 依存の洗い出しに漏れがあった場合の再現 |
+
+**rpath は一切埋め込んでいない。** 実行時に `LD_LIBRARY_PATH`（`/opt/lib` を含む）で解決されるかどうかが検証対象であるため。
+
+### ビルド結果
+
+`readelf -d` で記録された依存（DT_NEEDED）:
+
+| 生成物 | DT_NEEDED |
+| --- | --- |
+| `lib/libevalmain.so` | `libevaldep.so`, `libc.so.6` |
+| `bin/evaltool` | `libevaldep.so`, `libc.so.6` |
+| `broken/libbroken.so` | `libmissing.so`, `libc.so.6` |
+
+`libbroken.so` に対する `ldd` は意図どおり `libmissing.so => not found` となり、依存が欠けた状態を作れている。
+
+| 指標 | 実測値 |
+| --- | --- |
+| Layer ZIP サイズ | 12,675 bytes |
+| Layer 解凍後サイズ | 805,888 bytes |
+
+### 検証項目の結果 — **8/8 すべて成功**
+
+| # | 検証項目 | 判定 | 実測 |
+| --- | --- | --- | --- |
+| 2-0 | Layer が `/opt` に展開されている | ✅ | `/opt` = `["bin", "broken", "lib"]`。`libmissing.so` は同梱されていない |
+| 2-1 | **依存 `.so` の自動解決（Q3）** | ✅ | `ctypes.CDLL("/opt/lib/libevalmain.so")` 成功（1.432 ms） |
+| 2-1b | **依存先の関数呼び出しが実際に成立** | ✅ | `compute(6, 7)` = `43`。`dep_version_via_main()` が `"libevaldep 1.0.0 (phase2)"` を返す |
+| 2-2 | 依存関係の可視化 | ✅ | `/proc/self/maps` に `libevaldep.so` と `libevalmain.so` の両方がマップされている |
+| 2-3 | 依存解決失敗時のエラー記録 | ✅ 期待どおり失敗 | 下記参照 |
+| 2-4 | **`/opt/bin` の実行ファイル起動（Q4）** | ✅ | 絶対パス指定で終了コード 0（2.176 ms） |
+| 2-4b | コマンド名のみでの起動 | ✅ | `["evaltool", "3", "4"]` で成功（6.19 ms） |
+| 2-5 | パーミッションの保持 | ✅ | `/opt/bin/evaltool` = `0o755`、実行可能 |
+
+**Q3・Q4 への回答**
+
+> **Q3: `.so` が別の `.so` に依存する場合、依存解決は成立するか → 成立する。**
+>
+> **Q4: 実行バイナリを `/opt/bin` に置いた場合 `subprocess` から起動できるか → できる。**
+
+### 依存解決が「本当に」成立していることの根拠
+
+ロードが成功しただけでは依存先が実際に使われているとは言い切れないため、依存先の関数を経由した呼び出しで確認した。
+
+| 確認 | 結果 |
+| --- | --- |
+| `compute(6, 7)` | `43`（`= dep_multiply(6,7) + 1`。依存先の関数が実行されている） |
+| `dep_version_via_main()` | `"libevaldep 1.0.0 (phase2)"`（依存先の文字列が返っている） |
+| `/proc/self/maps` | `/opt/lib/libevaldep.so` が実際にマップされている |
+
+**実行ファイル側でも同様に確認できた。** `evaltool` の標準出力:
+
+```
+evaltool 1.0.0 (phase2)
+linked_lib=libevaldep 1.0.0 (phase2)
+dep_multiply(6,7)=42
+```
+
+`linked_lib=` の行は、実行ファイルが `LD_LIBRARY_PATH` 経由で `/opt/lib/libevaldep.so` を解決し、その関数を呼び出せていることを示している。**これは `tesseract` CLI が `libtesseract.so` を解決する経路とまったく同じ構造**であり、Phase 3 の方式②（`pytesseract`）が成立する見込みが高いことを意味する。
+
+### 2-3: 依存が欠けている場合のエラー（Phase 3 への申し送り）
+
+`libbroken.so`（`libmissing.so` に依存するが同梱していない）のロードを試みた実測結果:
+
+| 項目 | 値 |
+| --- | --- |
+| 例外の型 | `OSError` |
+| メッセージ | `libmissing.so: cannot open shared object file: No such file or directory` |
+
+**このメッセージが出た場合、原因は「欠けているライブラリ名がそのまま示されている」ため特定しやすい。** Phase 3 で Tesseract の依存を洗い出す際は、このエラーに出たライブラリ名を Layer に追加していく形で反復すればよい。
+
+### 計測値
+
+| 指標 | Phase 0（Layer なし） | Phase 1（200 KB） | Phase 2（806 KB） |
+| --- | --- | --- | --- |
+| Init Duration | 81.93 ms | 71.38 ms | 93.94 ms |
+| Duration（コールド時） | 21.94 ms | 3.33 ms | 13.95 ms |
+| Duration（ウォーム、3 回） | — | 2.06 / 1.88 / 2.09 ms | 5.18 / 5.09 / 4.93 ms |
+| Max Memory Used | 39 MB | 37 MB | 39 MB |
+
+> Phase 2 の Duration が Phase 1 より大きいのは、**検証項目としてプロセス起動（`subprocess`）を 2 回行っているため**であり、Layer のサイズによるものではない。実際、`subprocess` 1 回あたり 2.2〜6.2 ms を要しており、これは `ctypes` の関数呼び出し（0.08 ms 以下）と比べて 2 桁大きい。
+>
+> **Phase 3 の方式比較（3-11）における重要な予測材料になる。** OCR 1 回あたりでこの差が乗るため、呼び出し頻度が高い用途では `ctypes` 方式が有利になる可能性が高い。ただし OCR 本体の処理時間は数百 ms 規模と想定され、相対的な影響度は Phase 3 の実測で判断する。
+>
+> Init Duration は 71〜94 ms の範囲でばらついており、800 KB 程度の Layer では**サイズによる有意な差は観測できない**。
+
+### Phase 2 まとめ
+
+| 受入条件 | 判定 |
+| --- | --- |
+| 2-1（依存 `.so` の自動解決）が成功する | ✅ |
+| 2-3 は「失敗パターンの記録」であり、失敗すること自体が成果 | ✅ 期待どおり失敗し、エラーメッセージを記録 |
+
+**Phase 2 完了。Phase 3 で必要となる依存解決・実行ファイル起動・パーミッション保持のすべてが成立することを確認した。Phase 3 へ進行可能。**
 
 ---
 
