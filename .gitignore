@@ -1,0 +1,11 @@
+# ビルド成果物
+.build/
+layers/*/staging/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
