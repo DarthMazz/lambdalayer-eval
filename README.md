@@ -1,0 +1,2 @@
+# lambdalayer-eval
+LambdaLayer に配置したNativeモジュールをLambdaのPythonから呼び出す
