@@ -1,0 +1,21 @@
+# Phase 3 のビルド用イメージ。
+#
+# ベースは Lambda 実行環境と同一のイメージ。ここで生成したバイナリが
+# そのまま Lambda 上で動くことを保証するため、他のディストリビューションは使わない。
+#
+# ビルド依存をイメージ層にキャッシュすることで、Layer の反復ビルドを速くする。
+FROM public.ecr.aws/lambda/python:3.13
+
+# ビルドは autotools 経路を使う。
+# leptonica の CMake は当環境で Threads::Threads の解決に失敗するため、
+# 双方ともリリース同梱の configure / autogen.sh を用いる。
+RUN dnf install -y \
+      gcc gcc-c++ make \
+      autoconf automake libtool autoconf-archive pkgconf-pkg-config \
+      tar gzip findutils \
+      zlib-devel \
+      libjpeg-turbo-devel \
+      libpng-devel \
+      libtiff-devel \
+      libwebp-devel \
+    && (dnf clean all || true)

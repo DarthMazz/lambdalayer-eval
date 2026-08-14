@@ -438,15 +438,41 @@ lambdalayer-eval/
 - `finch vm init` 時、コンテナの公開ポートを macOS 側から参照するためのネットワーク設定（`socket_vmnet`）で root 権限が要求され、これは**未設定のままとしている**。本検証はビルド用途のみでポート公開を行わないため影響はない。将来コンテナのポートへホストから接続する必要が生じた場合は、別途 `sudo` を伴う設定が必要になる。
 - ビルド成果物のオーナーが `root` になるため、ZIP 化前にパーミッション（読み取り可・実行ファイルは `0755`）を確認する。
 
-### 9-2. Tesseract バイナリの入手方法（Phase 3 開始前に決定）
+### 9-2. Tesseract バイナリの入手方法 — **決定済み（2026-08-14）**
 
-| 案 | 内容 |
+**案 B（公式アップストリームからのソースビルド）を採用**。案 A は調査の結果、成立しないことが判明した。
+
+**調査結果**
+
+Amazon Linux 2023 のリポジトリ（利用可能パッケージ 14,339 件）を確認したところ、以下のとおり。
+
+| 対象 | 提供状況 |
 | --- | --- |
-| A. Amazon Linux 2023 の `dnf` で導入し、`/usr/lib64` から必要な `.so` を収集 | 手順が単純。パッケージの提供状況を Phase 3 着手時に確認する |
-| B. ソースからビルド | 依存を最小化でき、サイズ削減に有利。ビルド時間と手間が増える |
-| C. 既存の公開 Layer / ビルド済み成果物を利用 | 最速だが、提供元の信頼性と arm64 対応の確認が必要 |
+| `tesseract` | **なし** |
+| `leptonica` | **なし** |
+| ビルド依存（`gcc-c++` / `make` / `autoconf` / `automake` / `libtool` / `autoconf-archive` / `pkgconf` / `zlib-devel` / `libjpeg-turbo-devel` / `libpng-devel` / `libtiff-devel` / `libwebp-devel`） | **すべてあり** |
 
-Phase 3 着手時に A を第一候補として調査し、サイズ超過（R3）が発生した場合に B を検討する。
+案 A（`dnf` で導入）は不成立、案 C（公開 Layer の利用）は提供元の信頼性と arm64 対応の確認が別途必要になるため、**案 B が唯一の現実的な選択肢**である。
+
+**採用する構成**
+
+| 項目 | 内容 |
+| --- | --- |
+| Leptonica | 1.87.0（バージョン固定。再現性のため） |
+| Tesseract | 5.5.3（同上） |
+| ビルド方式 | autotools（`configure` / `autogen.sh`）。**CMake は当環境で `Threads::Threads` の解決に失敗するため使用しない** |
+| 言語データ | `tessdata_fast` の `eng.traineddata`。最小構成とし 250 MB 制限への余裕を最大化する |
+| ビルド用イメージ | `layers/phase3/Containerfile` でビルド依存を導入したものをキャッシュし、反復ビルドを速くする |
+
+**取得元**（いずれも公式アップストリーム。ビルドコンテナ内でのみ使用する）
+
+- `github.com/DanBloomberg/leptonica` — リリース tarball
+- `github.com/tesseract-ocr/tesseract` — タグ tarball
+- `github.com/tesseract-ocr/tessdata_fast` — 言語データ
+
+**依存ライブラリの同梱方針**
+
+`libjpeg` / `libpng` / `libtiff` / `libwebp` / `zlib` などは AL2023 のビルド環境には存在するが、**Lambda 実行環境に存在する保証はない**。そのため `ldd` による再帰的な洗い出しを収束するまで繰り返し、非 glibc 依存はすべて `lib/` に同梱する。glibc 本体が提供するもの（`libc` / `libm` / `libdl` / `libpthread` / `librt` / `ld-linux`）は、実行環境に必ず存在し差し替えるとかえって危険なため**同梱しない**。
 
 ---
 
